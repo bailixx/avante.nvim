@@ -1,8 +1,9 @@
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 
-from libs.configs import DB_FILE
+_db_file: Path
 
 # SQLite table schemas
 CREATE_TABLES_SQL = """
@@ -43,9 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_status ON indexing_history(status);
 
 
 @contextmanager
-def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
+def get_db_connection() -> Generator[sqlite3.Connection]:
     """Get a database connection."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(_db_file)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -53,8 +54,10 @@ def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
-def init_db() -> None:
+def init_db(db_file: Path) -> None:
     """Initialize the SQLite database."""
+    global _db_file
+    _db_file = db_file
     with get_db_connection() as conn:
         conn.executescript(CREATE_TABLES_SQL)
         conn.commit()

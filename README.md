@@ -509,7 +509,7 @@ _See [config.lua#L9](./lua/avante/config.lua) for the up to date full default co
   providers = {
     claude = {
       endpoint = "https://api.anthropic.com",
-      auth_type = "api" -- Set to "max" to sign in with Claude Pro/Max subscription
+      auth_type = "api", -- Set to "max" to sign in with Claude Pro/Max subscription
       model = "claude-3-5-sonnet-20241022",
       extra_request_body = {
         temperature = 0.75,
@@ -1047,7 +1047,7 @@ The following key bindings are available for use with `avante.nvim`:
 | `:AvanteFocus`                     | Switch focus to/from the sidebar                                                                            |                                                     |
 | `:AvanteRefresh`                   | Refresh all Avante windows                                                                                  |                                                     |
 | `:AvanteStop`                      | Stop the current AI request                                                                                 |                                                     |
-| `:AvanteSwitchProvider`            | Switch AI provider (e.g. openai)                                                                            |                                                     |
+| `:AvanteSwitchProvider [--save]`   | Switch AI provider; `--save` restores it on startup, overriding the configured default                                           |                                                     |
 | `:AvanteShowRepoMap`               | Show repo map for project's structure                                                                       |                                                     |
 | `:AvanteToggle`                    | Toggle the Avante sidebar                                                                                   |                                                     |
 | `:AvanteModels`                    | Show model list                                                                                             |                                                     |
@@ -1391,6 +1391,9 @@ See [the wiki](https://github.com/yetone/avante.nvim/wiki/plugin%E2%80%90integra
 - [x] Edit the selected block
 - [x] Smart Tab (Cursor Flow)
 - [x] Chat with project (You can use `@codebase` to chat with the whole project)
+- [ ] improve security aspects, document sandboxing approach
+- [ ] make RAG service more accessible
+- [ ] move more of the internal code to rust
 - [ ] better debugging capabilities (for prompts notably)
 - [ ] provide an helper to report bugs more effectively
 - [ ] Better codebase indexing

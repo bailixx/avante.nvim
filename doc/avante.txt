@@ -49,7 +49,7 @@ Converts html to markdown ···························
 ==============================================================================
 Installation                                               *avante-installation*
 
-See the official README at https://github.com/yetone/avante.nvim for installation instructions.
+See the official README at https://github.com/avante-corp/avante.nvim for installation instructions.
 
 ==============================================================================
 Requirements                                               *avante-requirements*
@@ -419,10 +419,11 @@ avante.Config                                                    *avante.Config*
                                                                         currently designating it as `copilot` provider is dangerous because: https://github.com/yetone/avante.nvim/issues/1048
                                                                         Of course, you can reduce the request frequency by increasing `suggestion.debounce`.
         {providers}                   ({string:AvanteProvider})        To add support for custom provider, follow the format below
-                                                                       See https://github.com/yetone/avante.nvim/wiki#custom-providers for more details
+                                                                       See https://github.com/avante-corp/avante.nvim/wiki#custom-providers for more details
         {acp_providers}               ({string:AvanteACPProvider})     Agent Client Protocol providers.  |avante-acp|
         {provider?}                   (avante.ProviderName)
-                                                                       Default provider on startup. If undefined, avante loads the last provider used.
+                                                                       Default provider on startup. An explicit :AvanteSwitchProvider --save choice takes precedence.
+                                                                       If undefined, avante loads the last provider used.
         {system_prompt?}              (string|nil|fun():string)
                                                                        System prompt
         {override_prompt_dir}         (string|nil|fun():string)         override_prompt_dir allows you to specify a directory containing your own custom prompt templates, which will override the built-in templates. This is useful if you want to maintain a set of custom prompts outside of your Neovim configuration.
@@ -499,11 +500,14 @@ avante.SelectorProvider                                *avante.SelectorProvider*
         
 
 
-M.save_last_model({model_name})                  *avante-config.save_last_model*
+                                                 *avante-config.save_last_model*
+M.save_last_model({model_name}, {provider_name}, {save_provider?})
      Function to save the last used model
 
     Parameters: ~
-        {model_name}  (string)
+        {model_name}      (string|nil)
+        {provider_name}   (string)
+        {save_provider?}  (boolean)     Override the configured startup provider
 
 
 M.get_last_used_model({known_providers})     *avante-config.get_last_used_model*
@@ -513,8 +517,12 @@ M.get_last_used_model({known_providers})     *avante-config.get_last_used_model*
         {known_providers}  (table<string,AvanteSupportedProvider>)
 
     Returns: ~
-        (string|nil)  name
-        (string|nil)  name
+        (string|nil)   name
+        (string|nil)   name
+        (boolean|nil)  the configured startup provider
+
+    See: ~
+        |save_last_model|
 
 
 M.setup({opts})                                            *avante-config.setup*
@@ -573,10 +581,11 @@ M.switch_input_provider({target_provider})    *avante-api.switch_input_provider*
         {target_provider}  (avante.InputProvider)
 
 
-M.switch_provider({target})                         *avante-api.switch_provider*
+M.switch_provider({provider_name}, {save_choice?})  *avante-api.switch_provider*
 
     Parameters: ~
-        {target}  (avante.ProviderName)
+        {provider_name}  (avante.ProviderName)  the provider to switch to
+        {save_choice?}   (boolean)              Persist the provider as the startup choice
 
 
 M.build({opts?})                                              *avante-api.build*
@@ -716,8 +725,10 @@ Commands (:AvanteAsk,...)                                      *avante-commands*
          Stop the current AI request.
 
                                                      *:AvanteSwitchProvider*
- :AvanteSwitchProvider
-         Switch AI provider.
+ :AvanteSwitchProvider [--save]
+         Switch AI provider. Pass `--save` to restore the choice on startup,
+         overriding the configured default provider. Without it, the switch
+         only affects the current session.
 
                                                      *:AvanteSwitchSelectorProvider*
  :AvanteSwitchSelectorProvider {provider}
@@ -1458,10 +1469,15 @@ MentionsSource:execute({completion_item}, {callback})
 avante RAG service                                          *avante-rag-service*
 
 
- The RAG service provides additional project context for AI responses. It is
- disabled by default.
+ The Retrieval-Augmented Generation (RAG) vante service provides additional project context for AI responses.
+ It is a python chromadb-based server supports several providers like openai, ollama and so on.
+ When enabled, avante will automatically launch the service on your current project (It is disabled by default).
+ The service will scan in the background your project such that you can query it later.
+
+ You can list the provider by running `avante-rag-service --help`.
+ The service config
 >
-   require("avante").setup({
+   vim.g.avante = {
      rag_service = {
        enabled = false,
        host_mount = os.getenv("HOME"),
@@ -1485,19 +1501,31 @@ avante RAG service                                          *avante-rag-service*
    })
 <
 
- The RAG service depends on Docker or Nix. The `host_mount` path is mounted
- read-only into the service container. After changing RAG configuration,
- remove the old container so the new configuration is used:
+ The RAG service lives in py/rag-service and be run via `uv run`.
+ `nix build .#ragService` will also give you the "avante-rag-service" executable.
+
+ You can change the list of ignored files in the "$XDG_CONFIG_HOME/avante/rag-ignore" file.
+
+ OUTDATED DOCKER SPECIFIC COMMENTS:
+ there was a docker build that is now outdated. It could be fixed if someone needs it
+ The `host_mount` path is mounted read-only into the service container.
+ After changing RAG configuration, remove the old container so the new configuration is used:
 >
    docker rm -fv avante-rag-service
 <
-Communication port is hardcoded to localhost:20250
+Communication port is (for now) hardcoded to localhost:20250
 
 M.run_rag_service()                         *avante-rag-service.run_rag_service*
-    @brief Starts the rag service if not already running
+    Starts the rag service if not already running
+     and loads the current project into it
+
+    See: ~
+        |launch_rag_service|
 
 
 M.get_rag_service_image()             *avante-rag-service.get_rag_service_image*
+    @brief Return the docker image full name
+    It is OUTDATED. If you need to use the docker image plea
 
 
 M.get_rag_service_port()               *avante-rag-service.get_rag_service_port*
@@ -1518,19 +1546,18 @@ M.get_rag_service_runner()           *avante-rag-service.get_rag_service_runner*
 M.launch_rag_service({cb})               *avante-rag-service.launch_rag_service*
 
     Parameters: ~
-        {cb}  (fun())
+        {cb}  (fun())  called after the service started
 
 
 M.stop_rag_service()                       *avante-rag-service.stop_rag_service*
 
 
-M.get_rag_service_status()           *avante-rag-service.get_rag_service_status*
-
-
 M.get_scheme()                                   *avante-rag-service.get_scheme*
+     http or https
 
 
 M.to_container_uri()                       *avante-rag-service.to_container_uri*
+    Transforms URI when used with docker
 
 
 M.to_local_uri()                               *avante-rag-service.to_local_uri*
@@ -1551,9 +1578,10 @@ AvanteRagServiceAddResourceResponse        *AvanteRagServiceAddResourceResponse*
 
 
 M.add_resource({uri})                          *avante-rag-service.add_resource*
+    Add resource to database
 
     Parameters: ~
-        {uri}  (string)
+        {uri}  (string)  CAREFUL: it is trailing slash sensitive (e.g. "file:///toto/")
 
 
 M.remove_resource()                         *avante-rag-service.remove_resource*
@@ -1601,7 +1629,7 @@ AvanteRagServiceIndexingStatusResponse  *AvanteRagServiceIndexingStatusResponse*
 M.indexing_status({uri})                    *avante-rag-service.indexing_status*
 
     Parameters: ~
-        {uri}  (string)
+        {uri}  (string)  e.g. "file:///home/USER/my-documentation"
 
     Returns: ~
         (AvanteRagServiceIndexingStatusResponse|nil)
@@ -1881,16 +1909,16 @@ Custom prompts                                                  *avante-prompts*
  Avante uses different prompts for planning, editing, suggesting, and
  agentic flows. You can set a global prompt:
 >
-   require("avante").setup({
+   vim.g.avante = {
      system_prompt = "MY CUSTOM SYSTEM PROMPT",
-   })
+   }
 <
 
  Or override the prompt directory:
 >
-   require("avante").setup({
+   vim.g.avante = {
      override_prompt_dir = vim.fn.expand("~/.config/nvim/avante_prompts"),
-   })
+   }
 <
 
 By default Avante reads `avante.md` from the project root as
@@ -1906,7 +1934,7 @@ Project prompt rules
 Avante can load `*.avanterules` files from a project. Configure rule
  directories:
 >
-   require("avante").setup({
+   vim.g.avante = {
      rules = {
        project_dir = ".avante/rules",
        global_dir = "~/.config/avante/rules",
@@ -1941,7 +1969,7 @@ M.get_ReAct_system_prompt({provider_conf}, {opts})
 
 
 M.get_agents_rules_prompt()             *avante-prompts.get_agents_rules_prompt*
-     Get the content of AGENTS.md and the likes (CLAUDE.md, .cursorrules, ...)
+     Get the content of the first file found in the list [ AGENTS.md, CLAUDE.md, ... ]
 
     Returns: ~
         (string|nil)

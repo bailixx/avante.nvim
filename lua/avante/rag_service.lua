@@ -1,10 +1,15 @@
 ---@mod avante-rag-service avante RAG service
 ---@brief [[
 ---
---- The RAG service provides additional project context for AI responses. It is
---- disabled by default.
+--- The Retrieval-Augmented Generation (RAG) vante service provides additional project context for AI responses.
+--- It is a python chromadb-based server supports several providers like openai, ollama and so on.
+--- When enabled, avante will automatically launch the service on your current project (It is disabled by default).
+--- The service will scan in the background your project such that you can query it later.
+---
+--- You can list the provider by running `avante-rag-service --help`.
+--- The service config
 --->
----   require("avante").setup({
+---   vim.g.avante = {
 ---     rag_service = {
 ---       enabled = false,
 ---       host_mount = os.getenv("HOME"),
@@ -28,13 +33,19 @@
 ---   })
 ---<
 ---
---- The RAG service depends on Docker or Nix. The `host_mount` path is mounted
---- read-only into the service container. After changing RAG configuration,
---- remove the old container so the new configuration is used:
+--- The RAG service lives in py/rag-service and be run via `uv run`.
+--- `nix build .#ragService` will also give you the "avante-rag-service" executable.
+---
+--- You can change the list of ignored files in the "$XDG_CONFIG_HOME/avante/rag-ignore" file.
+---
+--- OUTDATED DOCKER SPECIFIC COMMENTS:
+--- there was a docker build that is now outdated. It could be fixed if someone needs it
+--- The `host_mount` path is mounted read-only into the service container.
+--- After changing RAG configuration, remove the old container so the new configuration is used:
 --->
 ---   docker rm -fv avante-rag-service
 ---<
----Communication port is hardcoded to localhost:20250
+---Communication port is (for now) hardcoded to localhost:20250
 ---@brief ]]
 
 local curl = require("plenary.curl")
@@ -47,7 +58,9 @@ local M = {}
 local container_name = "avante-rag-service"
 local service_path = "/tmp/" .. container_name
 
----@brief Starts the rag service if not already running
+---Starts the rag service if not already running
+--- and loads the current project into it
+---@see launch_rag_service
 function M.run_rag_service()
   local started_at = os.time()
   local add_resource_with_delay
@@ -77,6 +90,8 @@ function M.run_rag_service()
   end)
 end
 
+---@brief Return the docker image full name
+---It is OUTDATED. If you need to use the docker image plea
 function M.get_rag_service_image()
   if Config.rag_service and Config.rag_service.image then
     return Config.rag_service.image
@@ -104,7 +119,11 @@ end
 
 function M.get_rag_service_runner() return (Config.rag_service and Config.rag_service.runner) or "docker" end
 
----@param cb fun()
+---Attempts to start the service regardless of its current status.
+---Wrap it with `M.is_ready` to check beforehand it's already started or call
+---Call `M.run_rag_service` that does it for you
+---@see M.run_rag_service
+---@param cb fun() called after the service started
 function M.launch_rag_service(cb)
   --- If Config.rag_service.llm.api_key is nil or empty, llm_api_key will be an empty string.
   local llm_api_key = ""
@@ -211,18 +230,6 @@ function M.launch_rag_service(cb)
   elseif M.get_rag_service_runner() == "nix" then
     -- Check if service is already running
     -- check if there is a process having "service_path" in its invokation
-    -- TODO use get_rag_service_status instead
-    local check_cmd = { "pgrep", "-f", service_path }
-    local check_result = vim.system(check_cmd, { text = true }):wait().stdout
-    if check_result ~= "" then
-      Utils.info(string.format("RAG service already running at %s", service_path))
-      cb()
-      return
-    end
-
-    local dirname =
-      Utils.trim(string.sub(debug.getinfo(1).source, 2, #"/lua/avante/rag_service.lua" * -1), { suffix = "/" })
-
     Utils.debug(string.format("launching %s with nix...", container_name))
 
     -- can be launched beforehand via "uv run"
@@ -256,13 +263,14 @@ function M.launch_rag_service(cb)
       if res.code ~= 0 then
         Utils.error(string.format("service %s failed to start, exit code: %d", container_name, res.code))
       else
-        Utils.debug(string.format("service %s started", container_name))
+        Utils.info(string.format("RAG service %s started successfully", container_name))
         cb()
       end
     end)
     if not ok then
       Utils.error(
-        "Could not launch 'avante-rag-service', you can install it via nix profile add github:yetone/avante.nvim#ragService"
+        "Could not launch 'avante-rag-service', you can install it via nix profile add github:avante-corp/avante.nvim#ragService. Error:\n"
+          .. job_or_err
       )
     end
   end
@@ -282,32 +290,14 @@ function M.stop_rag_service()
   end
 end
 
-function M.get_rag_service_status()
-  if M.get_rag_service_runner() == "docker" then
-    local cmd = { "docker", "inspect", "--format", "{{.State.Status}}", container_name }
-    local result = vim.system(cmd, { text = true }):wait().stdout
-    if result ~= "running" then
-      return "stopped"
-    else
-      return "running"
-    end
-  elseif M.get_rag_service_runner() == "nix" then
-    local cmd = { "pgrep", "-f", service_path }
-    local result = vim.system(cmd, { text = true }):wait().stdout
-    if result == "" then
-      return "stopped"
-    else
-      return "running"
-    end
-  end
-end
-
+--- http or https
 function M.get_scheme(uri)
   local scheme = uri:match("^(%w+)://")
   if scheme == nil then return "unknown" end
   return scheme
 end
 
+---Transforms URI when used with docker
 function M.to_container_uri(uri)
   local runner = M.get_rag_service_runner()
   if runner == "nix" then return uri end
@@ -349,7 +339,8 @@ end
 ---@field status string
 ---@field message string
 
----@param uri string
+---Add resource to database
+---@param uri string CAREFUL: it is trailing slash sensitive (e.g. "file:///toto/")
 function M.add_resource(uri)
   uri = M.to_container_uri(uri)
   local resource_name = uri:match("([^/]+)/$")
@@ -385,15 +376,19 @@ function M.add_resource(uri)
       end
     end
   end
+  local payload = vim.json.encode({ name = resource_name, uri = uri })
+  local url = M.get_rag_service_url() .. "/api/v1/add_resource"
+
+  Utils.debug("Sending payload to " .. url .. ": %s", payload)
   local cmd = {
     "curl",
     "-X",
     "POST",
-    M.get_rag_service_url() .. "/api/v1/add_resource",
+    url,
     "-H",
     "Content-Type: application/json",
     "-d",
-    vim.json.encode({ name = resource_name, uri = uri }),
+    payload,
   }
   vim.system(cmd, { text = true }, function(output)
     if output.code == 0 then
@@ -475,11 +470,12 @@ end
 ---@field total_files integer
 ---@field status_summary AvanteRagServiceIndexingStatusSummary
 
----@param uri string
+---@param uri string e.g. "file:///home/USER/my-documentation"
 ---@return AvanteRagServiceIndexingStatusResponse | nil
 function M.indexing_status(uri)
   uri = M.to_container_uri(uri)
-  local resp = curl.post(M.get_rag_service_url() .. "/api/v1/indexing_status", {
+  local url = M.get_rag_service_url() .. "/api/v1/indexing_status"
+  local resp = curl.post(url, {
     headers = {
       ["Content-Type"] = "application/json",
     },
@@ -487,6 +483,7 @@ function M.indexing_status(uri)
       uri = uri,
     }),
   })
+  Utils.debug("Asked indexing status at " .. url)
   if resp.status ~= 200 then
     Utils.error("Failed to get indexing status: " .. resp.body)
     return

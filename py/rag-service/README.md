@@ -2,6 +2,40 @@
 
 This document describes how to configure the RAG service, including setting up Language Model (LLM) and Embedding providers.
 
+## Storage directories
+
+The service stores databases and indexing metadata in `$XDG_DATA_HOME/avante-rag-service`
+(default: `~/.local/share/avante-rag-service`) and logs in
+`$XDG_STATE_HOME/avante-rag-service/logs` (default: `~/.local/state/avante-rag-service/logs`).
+Empty or relative XDG values use the defaults.
+
+The embedding configuration is stored in `$XDG_CONFIG_HOME/avante/rag_config.json`
+(default: `~/.config/avante/rag_config.json`), independently of `DATA_DIR` or `--data-dir`.
+
+Passing `--data-dir /path/to/data` or setting `DATA_DIR` overrides the data location
+and places logs in its `logs` subdirectory. The CLI option takes precedence over
+`DATA_DIR`, preserving the layout used by the Neovim and Docker launchers. Existing data in
+`/tmp/avante-rag-service` is not migrated automatically; move it to the new data
+directory or set `DATA_DIR` to keep using it.
+
+## Ignored file extensions
+
+Directory scans load ignored extensions from `$XDG_CONFIG_HOME/avante/rag-ignore`
+(default: `~/.config/avante/rag-ignore`). List one extension per line, including the
+leading dot:
+
+```text
+# Skip images and archives
+.png
+.jpg
+.zip
+```
+
+Extensions are case-insensitive; blank lines and lines starting with `#` are ignored.
+When present, this file replaces the built-in binary extension list. An empty file
+disables extension-based exclusions. If the file is absent, the built-in list is
+used. Git ignore and git-crypt exclusions still apply.
+
 ## Provider Support Matrix
 
 The following table shows which model types are supported by each provider:
@@ -133,4 +167,14 @@ embed = { -- Configuration for the Embedding Model used by the RAG service
     max_embedding_tokens = 512, -- Maximum tokens per chunk sent to the embedding model
   },
 },
+```
+
+# CONTRIBUTING
+
+With the python installer `uv`:
+
+```
+uv sync --python 3.13
+
+uv run avante-rag-service --help
 ```
